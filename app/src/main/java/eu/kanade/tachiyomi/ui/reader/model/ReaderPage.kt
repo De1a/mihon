@@ -1,12 +1,16 @@
 package eu.kanade.tachiyomi.ui.reader.model
 
 import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.translation.model.PageAnalysis
+import eu.kanade.translation.model.TranslationPageState
 import java.io.InputStream
 
 open class ReaderPage(
     index: Int,
     url: String = "",
     imageUrl: String? = null,
+    var analysis: PageAnalysis? = null,
+    var analysisState: TranslationPageState = TranslationPageState.Idle,
     var stream: (() -> InputStream)? = null,
 ) : Page(index, url, imageUrl, null) {
 

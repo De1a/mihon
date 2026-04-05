@@ -2,6 +2,8 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.PointF
+import android.view.View
 import android.view.LayoutInflater
 import androidx.core.view.isVisible
 import eu.kanade.presentation.util.formattedMessage
@@ -9,13 +11,20 @@ import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
+import eu.kanade.translation.ReaderTranslationCoordinator
+import eu.kanade.translation.model.TranslationPageContext
+import eu.kanade.translation.model.TranslationPageState
+import eu.kanade.translation.presentation.PageAnalysisOverlayView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import logcat.LogPriority
@@ -28,6 +37,9 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+import tachiyomi.domain.translation.TranslationPreferences
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 /**
  * View of the ViewPager that contains a page of a chapter.
@@ -37,7 +49,14 @@ class PagerPageHolder(
     readerThemedContext: Context,
     val viewer: PagerViewer,
     val page: ReaderPage,
+    private val translationCoordinator: ReaderTranslationCoordinator = Injekt.get(),
+    translationPreferences: TranslationPreferences = Injekt.get(),
+    readerPreferences: ReaderPreferences = Injekt.get(),
 ) : ReaderPageImageView(readerThemedContext), ViewPagerAdapter.PositionableView {
+    private var featureEnabled = translationPreferences.enabled.get()
+    private var showTranslations = readerPreferences.showTranslations.get()
+    private var translationsView: View? = null
+    private var analysisJob: Job? = null
 
     /**
      * Item that identifies this view. Needed by the adapter to not recreate views.
@@ -64,6 +83,14 @@ class PagerPageHolder(
 
     init {
         loadJob = scope.launch { loadPageAndProcessStatus() }
+        translationPreferences.enabled.changes().onEach {
+            featureEnabled = it
+            refreshTranslationsView()
+        }.launchIn(scope)
+        readerPreferences.showTranslations.changes().onEach {
+            showTranslations = it
+            translationsView?.isVisible = it
+        }.launchIn(scope)
     }
 
     /**
@@ -74,6 +101,8 @@ class PagerPageHolder(
         super.onDetachedFromWindow()
         loadJob?.cancel()
         loadJob = null
+        analysisJob?.cancel()
+        analysisJob = null
     }
 
     private fun initProgressIndicator() {
@@ -107,7 +136,10 @@ class PagerPageHolder(
                             progressIndicator?.setProgress(value)
                         }
                     }
-                    Page.State.Ready -> setImage()
+                    Page.State.Ready -> {
+                        setImage()
+                        refreshTranslationsView()
+                    }
                     is Page.State.Error -> setError(state.error)
                 }
             }
@@ -218,6 +250,62 @@ class PagerPageHolder(
         }
     }
 
+    private fun refreshTranslationsView() {
+        analysisJob?.cancel()
+        if (!featureEnabled) {
+            translationsView?.let(::removeView)
+            translationsView = null
+            page.analysis = null
+            page.analysisState = TranslationPageState.Idle
+            return
+        }
+        analysisJob = scope.launch {
+            page.analysisState = TranslationPageState.Loading
+            val chapter = page.chapter.chapter
+            val chapterId = chapter.id ?: return@launch
+            val mangaId = chapter.manga_id ?: return@launch
+            val streamProvider = page.stream ?: return@launch
+            val context = TranslationPageContext(
+                sourceId = 0L,
+                mangaId = mangaId,
+                chapterId = chapterId,
+                chapterName = chapter.name,
+                pageIndex = page.index,
+                imageUrl = page.imageUrl,
+                isLocal = page.chapter.pageLoader?.isLocal == true,
+            )
+            val analysis = translationCoordinator.getOrCreate(context, streamProvider)
+            withUIContext {
+                page.analysis = analysis
+                page.analysisState = analysis?.let { TranslationPageState.Ready(it) }
+                    ?: TranslationPageState.Error("No analysis available")
+                addTranslationsView()
+                updateTranslationCoords()
+            }
+        }
+    }
+
+    private fun addTranslationsView() {
+        translationsView?.let(::removeView)
+        translationsView = null
+        val analysis = page.analysis ?: return
+        val overlay = PageAnalysisOverlayView(context, analysis = analysis)
+        overlay.isVisible = showTranslations
+        translationsView = overlay
+        addView(overlay)
+    }
+
+    private fun updateTranslationCoords() {
+        val overlay = translationsView as? PageAnalysisOverlayView ?: return
+        val imageView = pageView ?: return
+        val ssiv = imageView as? com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView ?: return
+        val coords = ssiv.sourceToViewCoord(0f, 0f)
+        if (coords != null) {
+            overlay.viewTLState.value = coords
+            overlay.scaleState.value = ssiv.scale
+        }
+    }
+
     private fun splitInHalf(imageSource: BufferedSource): BufferedSource {
         var side = when {
             viewer is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.RIGHT
@@ -253,6 +341,8 @@ class PagerPageHolder(
     override fun onImageLoaded() {
         super.onImageLoaded()
         progressIndicator?.hide()
+        updateTranslationCoords()
+        translationsView?.isVisible = showTranslations
     }
 
     /**
@@ -260,6 +350,7 @@ class PagerPageHolder(
      */
     override fun onImageLoadError(error: Throwable?) {
         super.onImageLoadError(error)
+        translationsView?.isVisible = false
         setError(error)
     }
 
@@ -269,6 +360,12 @@ class PagerPageHolder(
     override fun onScaleChanged(newScale: Float) {
         super.onScaleChanged(newScale)
         viewer.activity.hideMenu()
+        updateTranslationCoords()
+    }
+
+    override fun onCenterChanged(newCenter: PointF?) {
+        super.onCenterChanged(newCenter)
+        updateTranslationCoords()
     }
 
     private fun showErrorLayout(error: Throwable?): ReaderErrorBinding {

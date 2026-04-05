@@ -20,6 +20,14 @@ import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.network.JavaScriptEngine
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.AndroidSourceManager
+import eu.kanade.translation.ModelCatalog
+import eu.kanade.translation.ModelDownloadManager
+import eu.kanade.translation.PageAnalysisRepository
+import eu.kanade.translation.PassthroughApiTranslationService
+import eu.kanade.translation.ReaderTranslationCoordinator
+import eu.kanade.translation.StaticModelCatalog
+import eu.kanade.translation.UnavailableBubbleDetector
+import eu.kanade.translation.UnavailableMangaOcrEngine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import nl.adaptivity.xmlutil.XmlDeclMode
@@ -36,6 +44,7 @@ import tachiyomi.data.StringListColumnAdapter
 import tachiyomi.data.UpdateStrategyColumnAdapter
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.storage.service.StorageManager
+import tachiyomi.domain.translation.TranslationPreferences
 import tachiyomi.source.local.image.LocalCoverManager
 import tachiyomi.source.local.io.LocalSourceFileSystem
 import uy.kohesive.injekt.api.InjektModule
@@ -116,6 +125,22 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { DownloadProvider(app) }
         addSingletonFactory { DownloadManager(app) }
         addSingletonFactory { DownloadCache(app) }
+        addSingletonFactory<ModelCatalog> { StaticModelCatalog() }
+        addSingletonFactory { ModelDownloadManager(app, get()) }
+        addSingletonFactory { PageAnalysisRepository(app) }
+        addSingletonFactory { UnavailableBubbleDetector() }
+        addSingletonFactory { UnavailableMangaOcrEngine() }
+        addSingletonFactory { PassthroughApiTranslationService() }
+        addSingletonFactory {
+            ReaderTranslationCoordinator(
+                context = app,
+                preferences = get<TranslationPreferences>(),
+                repository = get(),
+                bubbleDetector = get<UnavailableBubbleDetector>(),
+                ocrEngine = get<UnavailableMangaOcrEngine>(),
+                apiTranslationService = get<PassthroughApiTranslationService>(),
+            )
+        }
 
         addSingletonFactory { TrackerManager() }
         addSingletonFactory { DelayedTrackingStore(app) }

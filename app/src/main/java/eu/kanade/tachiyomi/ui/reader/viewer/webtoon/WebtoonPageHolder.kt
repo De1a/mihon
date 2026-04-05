@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
+import android.view.View
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -14,13 +15,20 @@ import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.dpToPx
+import eu.kanade.translation.ReaderTranslationCoordinator
+import eu.kanade.translation.model.TranslationPageContext
+import eu.kanade.translation.model.TranslationPageState
+import eu.kanade.translation.presentation.PageAnalysisOverlayView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import logcat.LogPriority
@@ -33,6 +41,9 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+import tachiyomi.domain.translation.TranslationPreferences
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 /**
  * Holder of the webtoon reader for a single page of a chapter.
@@ -44,7 +55,14 @@ import tachiyomi.i18n.MR
 class WebtoonPageHolder(
     private val frame: ReaderPageImageView,
     viewer: WebtoonViewer,
+    private val translationCoordinator: ReaderTranslationCoordinator = Injekt.get(),
+    translationPreferences: TranslationPreferences = Injekt.get(),
+    readerPreferences: ReaderPreferences = Injekt.get(),
 ) : WebtoonBaseHolder(frame, viewer) {
+    private var featureEnabled = translationPreferences.enabled.get()
+    private var showTranslations = readerPreferences.showTranslations.get()
+    private var translationsView: View? = null
+    private var analysisJob: Job? = null
 
     /**
      * Loading progress bar to indicate the current progress.
@@ -86,6 +104,14 @@ class WebtoonPageHolder(
         frame.onImageLoaded = { onImageDecoded() }
         frame.onImageLoadError = { error -> setError(error) }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
+        translationPreferences.enabled.changes().onEach {
+            featureEnabled = it
+            refreshTranslationsView()
+        }.launchIn(scope)
+        readerPreferences.showTranslations.changes().onEach {
+            showTranslations = it
+            translationsView?.isVisible = it
+        }.launchIn(scope)
     }
 
     /**
@@ -94,6 +120,7 @@ class WebtoonPageHolder(
     fun bind(page: ReaderPage) {
         this.page = page
         loadJob?.cancel()
+        analysisJob?.cancel()
         loadJob = scope.launch { loadPageAndProcessStatus() }
         refreshLayoutParams()
     }
@@ -116,8 +143,12 @@ class WebtoonPageHolder(
     override fun recycle() {
         loadJob?.cancel()
         loadJob = null
+        analysisJob?.cancel()
+        analysisJob = null
 
         removeErrorLayout()
+        translationsView?.let(frame::removeView)
+        translationsView = null
         frame.recycle()
         progressIndicator.setProgress(0)
         progressContainer.isVisible = true
@@ -147,7 +178,10 @@ class WebtoonPageHolder(
                             progressIndicator.setProgress(value)
                         }
                     }
-                    Page.State.Ready -> setImage()
+                    Page.State.Ready -> {
+                        setImage()
+                        refreshTranslationsView()
+                    }
                     is Page.State.Error -> setError(state.error)
                 }
             }
@@ -246,6 +280,7 @@ class WebtoonPageHolder(
      */
     private fun setError(error: Throwable?) {
         progressContainer.isVisible = false
+        translationsView?.isVisible = false
         initErrorLayout(error)
     }
 
@@ -255,6 +290,62 @@ class WebtoonPageHolder(
     private fun onImageDecoded() {
         progressContainer.isVisible = false
         removeErrorLayout()
+        updateOverlayScale()
+        translationsView?.isVisible = showTranslations
+    }
+
+    private fun refreshTranslationsView() {
+        val currentPage = page ?: return
+        analysisJob?.cancel()
+        if (!featureEnabled) {
+            translationsView?.let(frame::removeView)
+            translationsView = null
+            currentPage.analysis = null
+            currentPage.analysisState = TranslationPageState.Idle
+            return
+        }
+        analysisJob = scope.launch {
+            currentPage.analysisState = TranslationPageState.Loading
+            val chapter = currentPage.chapter.chapter
+            val chapterId = chapter.id ?: return@launch
+            val mangaId = chapter.manga_id ?: return@launch
+            val streamProvider = currentPage.stream ?: return@launch
+            val context = TranslationPageContext(
+                sourceId = 0L,
+                mangaId = mangaId,
+                chapterId = chapterId,
+                chapterName = chapter.name,
+                pageIndex = currentPage.index,
+                imageUrl = currentPage.imageUrl,
+                isLocal = currentPage.chapter.pageLoader?.isLocal == true,
+            )
+            val analysis = translationCoordinator.getOrCreate(context, streamProvider)
+            withUIContext {
+                currentPage.analysis = analysis
+                currentPage.analysisState = analysis?.let { TranslationPageState.Ready(it) }
+                    ?: TranslationPageState.Error("No analysis available")
+                addTranslationsView()
+            }
+        }
+    }
+
+    private fun addTranslationsView() {
+        translationsView?.let(frame::removeView)
+        translationsView = null
+        val analysis = page?.analysis ?: return
+        val overlay = PageAnalysisOverlayView(context, analysis = analysis)
+        overlay.isVisible = showTranslations
+        translationsView = overlay
+        frame.addView(overlay, MATCH_PARENT, MATCH_PARENT)
+        updateOverlayScale()
+    }
+
+    private fun updateOverlayScale() {
+        val overlay = translationsView as? PageAnalysisOverlayView ?: return
+        val analysis = page?.analysis ?: return
+        if (analysis.imageWidth <= 0f || frame.width <= 0) return
+        overlay.viewTLState.value = android.graphics.PointF()
+        overlay.scaleState.value = frame.width / analysis.imageWidth
     }
 
     /**
