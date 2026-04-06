@@ -297,8 +297,7 @@ class PagerPageHolder(
 
     private fun updateTranslationCoords() {
         val overlay = translationsView as? PageAnalysisOverlayView ?: return
-        val imageView = pageView ?: return
-        val ssiv = imageView as? com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView ?: return
+        val ssiv = subsamplingImageView() ?: return
         val coords = ssiv.sourceToViewCoord(0f, 0f)
         if (coords != null) {
             overlay.viewTLState.value = coords

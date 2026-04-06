@@ -71,6 +71,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
     var onImageLoaded: (() -> Unit)? = null
     var onImageLoadError: ((Throwable?) -> Unit)? = null
     var onScaleChanged: ((newScale: Float) -> Unit)? = null
+    var onCenterChanged: ((PointF?) -> Unit)? = null
     var onViewClicked: (() -> Unit)? = null
 
     /**
@@ -95,9 +96,16 @@ open class ReaderPageImageView @JvmOverloads constructor(
     }
 
     @CallSuper
+    open fun onCenterChanged(newCenter: PointF?) {
+        onCenterChanged?.invoke(newCenter)
+    }
+
+    @CallSuper
     open fun onViewClicked() {
         onViewClicked?.invoke()
     }
+
+    protected fun subsamplingImageView(): SubsamplingScaleImageView? = pageView as? SubsamplingScaleImageView
 
     open fun onPageSelected(forward: Boolean) {
         with(pageView as? SubsamplingScaleImageView) {
@@ -251,7 +259,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     }
 
                     override fun onCenterChanged(newCenter: PointF?, origin: Int) {
-                        // Not used
+                        this@ReaderPageImageView.onCenterChanged(newCenter)
                     }
                 },
             )
