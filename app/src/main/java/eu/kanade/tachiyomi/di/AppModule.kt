@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.network.JavaScriptEngine
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.AndroidSourceManager
+import eu.kanade.translation.CloudPageAnalysisService
 import eu.kanade.translation.ModelCatalog
 import eu.kanade.translation.ModelDownloadManager
 import eu.kanade.translation.PageAnalysisRepository
@@ -27,9 +28,8 @@ import eu.kanade.translation.PassthroughApiTranslationService
 import eu.kanade.translation.ReaderTranslationCoordinator
 import eu.kanade.translation.StaticModelCatalog
 import eu.kanade.translation.UnavailableBubbleDetector
-import eu.kanade.translation.UnavailableCloudPageAnalysisService
 import eu.kanade.translation.UnavailableMangaOcrEngine
-import eu.kanade.translation.CloudPageAnalysisService
+import eu.kanade.translation.UnavailableCloudPageAnalysisService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import nl.adaptivity.xmlutil.XmlDeclMode
