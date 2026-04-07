@@ -10,8 +10,8 @@ import eu.kanade.translation.model.TranslationPageContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
-import tachiyomi.domain.translation.TranslationPreferences
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.translation.TranslationPreferences
 
 class ReaderTranslationCoordinator(
     private val context: Context,
