@@ -28,8 +28,8 @@ import eu.kanade.translation.PassthroughApiTranslationService
 import eu.kanade.translation.ReaderTranslationCoordinator
 import eu.kanade.translation.StaticModelCatalog
 import eu.kanade.translation.UnavailableBubbleDetector
-import eu.kanade.translation.UnavailableMangaOcrEngine
 import eu.kanade.translation.UnavailableCloudPageAnalysisService
+import eu.kanade.translation.UnavailableMangaOcrEngine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import nl.adaptivity.xmlutil.XmlDeclMode
