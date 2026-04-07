@@ -12,19 +12,19 @@ class StaticModelCatalog : ModelCatalog {
     override fun artifacts(): ImmutableList<ModelArtifact> = persistentListOf(
         ModelArtifact(
             id = "manga-bubble-detector",
-            version = "placeholder",
+            version = "lightweight-tflite-placeholder",
             url = "https://example.invalid/manga-bubble-detector",
             sha256 = "",
             sizeBytes = 0,
-            runtime = ModelArtifact.Runtime.OnnxRuntime,
+            runtime = ModelArtifact.Runtime.TFLite,
         ),
         ModelArtifact(
             id = "manga-ocr-android",
-            version = "placeholder",
+            version = "lightweight-tflite-placeholder",
             url = "https://example.invalid/manga-ocr-android",
             sha256 = "",
             sizeBytes = 0,
-            runtime = ModelArtifact.Runtime.Unknown,
+            runtime = ModelArtifact.Runtime.TFLite,
         ),
     )
 }

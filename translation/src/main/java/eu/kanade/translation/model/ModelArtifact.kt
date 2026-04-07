@@ -12,8 +12,10 @@ data class ModelArtifact(
     val runtime: Runtime,
 ) {
     enum class Runtime {
+        TFLite,
         OnnxRuntime,
         ExecuTorch,
+        OpenAiCompatible,
         Unknown,
     }
 }

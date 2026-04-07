@@ -27,7 +27,9 @@ import eu.kanade.translation.PassthroughApiTranslationService
 import eu.kanade.translation.ReaderTranslationCoordinator
 import eu.kanade.translation.StaticModelCatalog
 import eu.kanade.translation.UnavailableBubbleDetector
+import eu.kanade.translation.UnavailableCloudPageAnalysisService
 import eu.kanade.translation.UnavailableMangaOcrEngine
+import eu.kanade.translation.CloudPageAnalysisService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import nl.adaptivity.xmlutil.XmlDeclMode
@@ -131,6 +133,7 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { UnavailableBubbleDetector() }
         addSingletonFactory { UnavailableMangaOcrEngine() }
         addSingletonFactory { PassthroughApiTranslationService() }
+        addSingletonFactory<CloudPageAnalysisService> { UnavailableCloudPageAnalysisService() }
         addSingletonFactory {
             ReaderTranslationCoordinator(
                 context = app,
@@ -139,6 +142,7 @@ class AppModule(val app: Application) : InjektModule {
                 bubbleDetector = get<UnavailableBubbleDetector>(),
                 ocrEngine = get<UnavailableMangaOcrEngine>(),
                 apiTranslationService = get<PassthroughApiTranslationService>(),
+                cloudPageAnalysisService = get(),
             )
         }
 

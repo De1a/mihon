@@ -1,12 +1,16 @@
 package eu.kanade.translation
 
 import android.graphics.Bitmap
-import eu.kanade.translation.model.BubbleRegion
+import eu.kanade.translation.model.DetectedRegion
 
 interface BubbleDetector {
-    suspend fun detect(bitmap: Bitmap): List<BubbleRegion>
+    val modelVersion: String
+
+    suspend fun detect(bitmap: Bitmap): List<DetectedRegion>
 }
 
 class UnavailableBubbleDetector : BubbleDetector {
-    override suspend fun detect(bitmap: Bitmap): List<BubbleRegion> = emptyList()
+    override val modelVersion: String = "unavailable"
+
+    override suspend fun detect(bitmap: Bitmap): List<DetectedRegion> = emptyList()
 }

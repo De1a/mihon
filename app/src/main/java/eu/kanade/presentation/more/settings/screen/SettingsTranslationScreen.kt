@@ -25,6 +25,8 @@ object SettingsTranslationScreen : SearchableSettings {
         val preferences = remember { Injekt.get<TranslationPreferences>() }
         val readerPreferences = remember { Injekt.get<ReaderPreferences>() }
         val modelDownloadManager = remember { Injekt.get<ModelDownloadManager>() }
+        val enabled = preferences.enabled.get()
+        val cloudMode = preferences.pipelineMode.get() == "cloud"
         return listOf(
             Preference.PreferenceItem.SwitchPreference(
                 preference = preferences.enabled,
@@ -33,7 +35,16 @@ object SettingsTranslationScreen : SearchableSettings {
             Preference.PreferenceItem.SwitchPreference(
                 preference = preferences.preprocessOnlinePages,
                 title = stringResource(MR.strings.pref_preprocess_online_pages),
-                enabled = preferences.enabled.get(),
+                enabled = enabled,
+            ),
+            Preference.PreferenceItem.ListPreference(
+                preference = preferences.pipelineMode,
+                title = stringResource(MR.strings.pref_translation_pipeline_mode),
+                entries = persistentMapOf(
+                    "local" to stringResource(MR.strings.pref_translation_pipeline_mode_local),
+                    "cloud" to stringResource(MR.strings.pref_translation_pipeline_mode_cloud),
+                ),
+                enabled = enabled,
             ),
             Preference.PreferenceItem.ListPreference(
                 preference = preferences.targetLanguage,
@@ -44,21 +55,27 @@ object SettingsTranslationScreen : SearchableSettings {
                     "zh-TW" to "Chinese (Traditional)",
                     "ko" to "Korean",
                 ),
-                enabled = preferences.enabled.get(),
+                enabled = enabled,
             ),
-            Preference.PreferenceItem.ListPreference(
-                preference = preferences.apiProvider,
-                title = stringResource(MR.strings.pref_translation_api_provider),
-                entries = persistentMapOf(
-                    "openrouter" to "OpenRouter",
-                    "gemini" to "Gemini",
-                ),
-                enabled = preferences.enabled.get(),
+            Preference.PreferenceItem.EditTextPreference(
+                preference = preferences.apiBaseUrl,
+                title = stringResource(MR.strings.pref_translation_api_base_url),
+                enabled = enabled && cloudMode,
+            ),
+            Preference.PreferenceItem.EditTextPreference(
+                preference = preferences.apiModel,
+                title = stringResource(MR.strings.pref_translation_api_model),
+                enabled = enabled && cloudMode,
             ),
             Preference.PreferenceItem.EditTextPreference(
                 preference = preferences.apiKey,
                 title = stringResource(MR.strings.pref_translation_api_key),
-                enabled = preferences.enabled.get(),
+                enabled = enabled && cloudMode,
+            ),
+            Preference.PreferenceItem.EditTextPreference(
+                preference = preferences.apiSystemPrompt,
+                title = stringResource(MR.strings.pref_translation_api_system_prompt),
+                enabled = enabled && cloudMode,
             ),
             Preference.PreferenceGroup(
                 title = stringResource(MR.strings.pref_category_display),
@@ -66,14 +83,14 @@ object SettingsTranslationScreen : SearchableSettings {
                     Preference.PreferenceItem.SwitchPreference(
                         preference = readerPreferences.showTranslations,
                         title = stringResource(MR.strings.pref_show_translations),
-                        enabled = preferences.enabled.get(),
+                        enabled = enabled,
                     ),
                     Preference.PreferenceItem.SliderPreference(
                         value = preferences.overlayScalePercent.get(),
                         title = stringResource(MR.strings.pref_translation_overlay_scale),
                         valueString = "${preferences.overlayScalePercent.get()}%",
                         valueRange = 70..140,
-                        enabled = preferences.enabled.get(),
+                        enabled = enabled,
                         onValueChanged = preferences.overlayScalePercent::set,
                     ),
                 ),

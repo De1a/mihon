@@ -15,6 +15,17 @@ data class PageAnalysis(
 }
 
 @Serializable
+data class DetectedRegion(
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val paddingX: Float = 0f,
+    val paddingY: Float = 0f,
+    val confidence: Float = 0f,
+)
+
+@Serializable
 data class BubbleRegion(
     val text: String,
     val translatedText: String = "",

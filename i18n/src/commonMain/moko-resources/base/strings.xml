@@ -408,9 +408,15 @@
     <string name="pref_show_translations">Show translations</string>
     <string name="pref_enable_translation_feature">Enable translation feature</string>
     <string name="pref_preprocess_online_pages">Preprocess online pages</string>
+    <string name="pref_translation_pipeline_mode">Translation mode</string>
+    <string name="pref_translation_pipeline_mode_local">Local lightweight</string>
+    <string name="pref_translation_pipeline_mode_cloud">Cloud GPT</string>
     <string name="pref_translation_target_language">Target language</string>
     <string name="pref_translation_api_provider">API provider</string>
+    <string name="pref_translation_api_base_url">OpenAI-compatible base URL</string>
+    <string name="pref_translation_api_model">API model</string>
     <string name="pref_translation_api_key">API key</string>
+    <string name="pref_translation_api_system_prompt">System prompt</string>
     <string name="pref_translation_model_status">Model status</string>
     <string name="pref_translation_overlay_scale">Overlay scale</string>
     <string name="pref_hardware_bitmap_threshold">Custom hardware bitmap threshold</string>
