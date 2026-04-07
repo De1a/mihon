@@ -47,7 +47,8 @@ class ReaderTranslationCoordinator(
 
                     val regions = detected.mapNotNull { region ->
                         val cropped = bitmap.cropRegion(region) ?: return@mapNotNull null
-                        val recognized = ocrEngine.recognize(cropped)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        val recognized =
+                            ocrEngine.recognize(cropped)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                         BubbleRegion(
                             text = recognized,
                             x = region.x,
@@ -64,7 +65,10 @@ class ReaderTranslationCoordinator(
 
                     val translated = regions.map { region ->
                         region.copy(
-                            translatedText = apiTranslationService.translate(region.text, preferences.targetLanguage.get()),
+                            translatedText = apiTranslationService.translate(
+                                region.text,
+                                preferences.targetLanguage.get(),
+                            ),
                         )
                     }
                     PageAnalysis(
