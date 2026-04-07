@@ -9,7 +9,9 @@ import eu.kanade.translation.model.PageAnalysis
 import eu.kanade.translation.model.TranslationPageContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import logcat.LogPriority
 import tachiyomi.domain.translation.TranslationPreferences
+import tachiyomi.core.common.util.system.logcat
 
 class ReaderTranslationCoordinator(
     private val context: Context,
@@ -24,15 +26,48 @@ class ReaderTranslationCoordinator(
         pageContext: TranslationPageContext,
         streamProvider: () -> java.io.InputStream,
     ): PageAnalysis? {
-        if (!preferences.enabled.get()) return null
-        if (!pageContext.isLocal && !preferences.preprocessOnlinePages.get()) return null
+        val pageKey = cacheKey(pageContext)
+        val mode = preferences.pipelineMode.get()
+        logcat(LogPriority.INFO) {
+            "[TranslationPipeline] stage=start pageKey=$pageKey mode=$mode isLocalPage=${pageContext.isLocal}"
+        }
 
-        repository.get(cacheKey(pageContext))?.let { return it }
+        if (!preferences.enabled.get()) {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] stage=skip_feature_disabled pageKey=$pageKey mode=$mode"
+            }
+            return null
+        }
+        if (!pageContext.isLocal && !preferences.preprocessOnlinePages.get()) {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] stage=skip_online_preprocess_disabled pageKey=$pageKey mode=$mode"
+            }
+            return null
+        }
+
+        repository.get(pageKey)?.let {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] stage=analysis_ready pageKey=$pageKey source=cache regions=${it.regions.size} mode=$mode"
+            }
+            return it
+        }
 
         val analysis = withContext(Dispatchers.IO) {
-            val bitmap = streamProvider().use { BitmapFactory.decodeStream(it) } ?: return@withContext null
-            when (preferences.pipelineMode.get()) {
+            val bitmap = streamProvider().use { BitmapFactory.decodeStream(it) }
+            if (bitmap == null) {
+                logcat(LogPriority.WARN) {
+                    "[TranslationPipeline] stage=decode_bitmap_fail pageKey=$pageKey mode=$mode"
+                }
+                return@withContext null
+            }
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] stage=decode_bitmap_success pageKey=$pageKey mode=$mode bitmap=${bitmap.width}x${bitmap.height}"
+            }
+            when (mode) {
                 PIPELINE_MODE_CLOUD -> {
+                    logcat(LogPriority.INFO) {
+                        "[TranslationPipeline] stage=mode_cloud pageKey=$pageKey targetLanguage=${preferences.targetLanguage.get()}"
+                    }
                     cloudPageAnalysisService.analyzePage(
                         bitmap = bitmap,
                         targetLanguage = preferences.targetLanguage.get(),
@@ -40,9 +75,18 @@ class ReaderTranslationCoordinator(
                     )
                 }
                 else -> {
+                    logcat(LogPriority.INFO) {
+                        "[TranslationPipeline] stage=mode_local pageKey=$pageKey targetLanguage=${preferences.targetLanguage.get()}"
+                    }
                     val detected = bubbleDetector.detect(bitmap)
                     if (detected.isEmpty()) {
+                        logcat(LogPriority.WARN) {
+                            "[TranslationPipeline] stage=detector_empty pageKey=$pageKey mode=$mode"
+                        }
                         return@withContext null
+                    }
+                    logcat(LogPriority.INFO) {
+                        "[TranslationPipeline] stage=detector_success pageKey=$pageKey regions=${detected.size} mode=$mode"
                     }
 
                     val regions = detected.mapNotNull { region ->
@@ -60,7 +104,13 @@ class ReaderTranslationCoordinator(
                         )
                     }
                     if (regions.isEmpty()) {
+                        logcat(LogPriority.WARN) {
+                            "[TranslationPipeline] stage=ocr_empty pageKey=$pageKey mode=$mode"
+                        }
                         return@withContext null
+                    }
+                    logcat(LogPriority.INFO) {
+                        "[TranslationPipeline] stage=ocr_success pageKey=$pageKey recognizedRegions=${regions.size} mode=$mode"
                     }
 
                     val translated = regions.map { region ->
@@ -71,6 +121,9 @@ class ReaderTranslationCoordinator(
                             ),
                         )
                     }
+                    logcat(LogPriority.INFO) {
+                        "[TranslationPipeline] stage=translate_success pageKey=$pageKey translatedRegions=${translated.size} provider=${apiTranslationService.providerId}"
+                    }
                     PageAnalysis(
                         imageWidth = bitmap.width.toFloat(),
                         imageHeight = bitmap.height.toFloat(),
@@ -79,9 +132,17 @@ class ReaderTranslationCoordinator(
                     )
                 }
             }
-        } ?: return null
+        } ?: run {
+            logcat(LogPriority.WARN) {
+                "[TranslationPipeline] stage=return_null pageKey=$pageKey mode=$mode"
+            }
+            return null
+        }
 
-        repository.put(cacheKey(pageContext), analysis)
+        repository.put(pageKey, analysis)
+        logcat(LogPriority.INFO) {
+            "[TranslationPipeline] stage=analysis_saved pageKey=$pageKey regions=${analysis.regions.size} modelVersion=${analysis.modelVersion}"
+        }
         return analysis
     }
 

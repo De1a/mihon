@@ -253,6 +253,9 @@ class PagerPageHolder(
     private fun refreshTranslationsView() {
         analysisJob?.cancel()
         if (!featureEnabled) {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] source=pager stage=skip_feature_disabled pageIndex=${page.index}"
+            }
             translationsView?.let(::removeView)
             translationsView = null
             page.analysis = null
@@ -260,6 +263,9 @@ class PagerPageHolder(
             return
         }
         analysisJob = scope.launch {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] source=pager stage=request_analysis pageIndex=${page.index}"
+            }
             page.analysisState = TranslationPageState.Loading
             val chapter = page.chapter.chapter
             val chapterId = chapter.id ?: return@launch
@@ -279,6 +285,9 @@ class PagerPageHolder(
                 page.analysis = analysis
                 page.analysisState = analysis?.let { TranslationPageState.Ready(it) }
                     ?: TranslationPageState.Error("No analysis available")
+                logcat(LogPriority.INFO) {
+                    "[TranslationPipeline] source=pager stage=analysis_result pageIndex=${page.index} result=${if (analysis != null) "ready" else "empty"}"
+                }
                 addTranslationsView()
                 updateTranslationCoords()
             }
@@ -293,6 +302,9 @@ class PagerPageHolder(
         overlay.isVisible = showTranslations
         translationsView = overlay
         addView(overlay)
+        logcat(LogPriority.INFO) {
+            "[TranslationPipeline] source=pager stage=overlay_attached pageIndex=${page.index} regions=${analysis.regions.size}"
+        }
     }
 
     private fun updateTranslationCoords() {

@@ -298,6 +298,9 @@ class WebtoonPageHolder(
         val currentPage = page ?: return
         analysisJob?.cancel()
         if (!featureEnabled) {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] source=webtoon stage=skip_feature_disabled pageIndex=${currentPage.index}"
+            }
             translationsView?.let(frame::removeView)
             translationsView = null
             currentPage.analysis = null
@@ -305,6 +308,9 @@ class WebtoonPageHolder(
             return
         }
         analysisJob = scope.launch {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] source=webtoon stage=request_analysis pageIndex=${currentPage.index}"
+            }
             currentPage.analysisState = TranslationPageState.Loading
             val chapter = currentPage.chapter.chapter
             val chapterId = chapter.id ?: return@launch
@@ -324,6 +330,9 @@ class WebtoonPageHolder(
                 currentPage.analysis = analysis
                 currentPage.analysisState = analysis?.let { TranslationPageState.Ready(it) }
                     ?: TranslationPageState.Error("No analysis available")
+                logcat(LogPriority.INFO) {
+                    "[TranslationPipeline] source=webtoon stage=analysis_result pageIndex=${currentPage.index} result=${if (analysis != null) "ready" else "empty"}"
+                }
                 addTranslationsView()
             }
         }
@@ -338,6 +347,9 @@ class WebtoonPageHolder(
         translationsView = overlay
         frame.addView(overlay, MATCH_PARENT, MATCH_PARENT)
         updateOverlayScale()
+        logcat(LogPriority.INFO) {
+            "[TranslationPipeline] source=webtoon stage=overlay_attached pageIndex=${page?.index} regions=${analysis.regions.size}"
+        }
     }
 
     private fun updateOverlayScale() {
