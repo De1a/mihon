@@ -8,12 +8,12 @@ import eu.kanade.translation.model.BubbleTranslationStatus
 import eu.kanade.translation.model.DetectedRegion
 import eu.kanade.translation.model.PageAnalysis
 import eu.kanade.translation.model.TranslationPageContext
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.translation.TranslationPreferences
+import java.util.UUID
 
 class ReaderTranslationCoordinator(
     private val context: Context,

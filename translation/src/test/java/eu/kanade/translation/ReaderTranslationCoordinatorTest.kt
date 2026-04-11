@@ -8,8 +8,8 @@ import eu.kanade.translation.model.BubbleTranslationStatus
 import eu.kanade.translation.model.DetectedRegion
 import eu.kanade.translation.model.PageAnalysis
 import eu.kanade.translation.model.TranslationPageContext
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotBeBlank
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -146,14 +146,17 @@ class ReaderTranslationCoordinatorTest {
         analysis.regions.single().translatedText shouldBe null
         analysis.regions.single().translationStatus shouldBe BubbleTranslationStatus.Pending
         verify(exactly = 1) {
-            repository.put(any(), match {
-                it.imageWidth == 1080f &&
-                    it.imageHeight == 1920f &&
-                    it.regions.size == 1 &&
-                    it.regions.single().sourceText == null &&
-                    it.regions.single().translatedText == null &&
-                    it.regions.single().translationStatus == BubbleTranslationStatus.Pending
-            })
+            repository.put(
+                any(),
+                match {
+                    it.imageWidth == 1080f &&
+                        it.imageHeight == 1920f &&
+                        it.regions.size == 1 &&
+                        it.regions.single().sourceText == null &&
+                        it.regions.single().translatedText == null &&
+                        it.regions.single().translationStatus == BubbleTranslationStatus.Pending
+                },
+            )
         }
         coVerify(exactly = 0) { ocrEngine.recognize(any()) }
         coVerify(exactly = 0) { apiTranslationService.translateBubble(any(), any(), any()) }
@@ -292,13 +295,16 @@ class ReaderTranslationCoordinatorTest {
             translationStatus = BubbleTranslationStatus.Pending,
         )
         verify(exactly = 1) {
-            repository.put(any(), match {
-                it.regions[0].translatedText == "Hello" &&
-                    it.regions[0].sourceText == "こんにちは" &&
-                    it.regions[0].translationStatus == BubbleTranslationStatus.Translated &&
-                    it.regions[0].providerId == apiTranslationService.providerId &&
-                    it.regions[1].translatedText == null
-            })
+            repository.put(
+                any(),
+                match {
+                    it.regions[0].translatedText == "Hello" &&
+                        it.regions[0].sourceText == "こんにちは" &&
+                        it.regions[0].translationStatus == BubbleTranslationStatus.Translated &&
+                        it.regions[0].providerId == apiTranslationService.providerId &&
+                        it.regions[1].translatedText == null
+                },
+            )
         }
         coVerify(exactly = 1) {
             apiTranslationService.translateBubble(croppedBitmap, "en", "Translate manga dialogue naturally")
@@ -356,10 +362,13 @@ class ReaderTranslationCoordinatorTest {
             errorMessage = "Empty translation result",
         )
         verify(exactly = 1) {
-            repository.put(any(), match {
-                it.regions.single().translationStatus == BubbleTranslationStatus.Error &&
-                    it.regions.single().errorMessage == "Empty translation result"
-            })
+            repository.put(
+                any(),
+                match {
+                    it.regions.single().translationStatus == BubbleTranslationStatus.Error &&
+                        it.regions.single().errorMessage == "Empty translation result"
+                },
+            )
         }
     }
 
