@@ -1,21 +1,35 @@
 package eu.kanade.translation
 
+import android.graphics.Bitmap
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+
+data class BubbleTranslationResult(
+    val sourceText: String,
+    val translatedText: String,
+)
 
 interface ApiTranslationService {
     val providerId: String
 
-    suspend fun translate(text: String, targetLanguage: String): String
+    suspend fun translateBubble(
+        bitmap: Bitmap,
+        targetLanguage: String,
+        systemPrompt: String?,
+    ): BubbleTranslationResult?
 }
 
 class PassthroughApiTranslationService : ApiTranslationService {
     override val providerId: String = "passthrough"
 
-    override suspend fun translate(text: String, targetLanguage: String): String {
+    override suspend fun translateBubble(
+        bitmap: Bitmap,
+        targetLanguage: String,
+        systemPrompt: String?,
+    ): BubbleTranslationResult? {
         logcat(LogPriority.WARN) {
-            "[TranslationPipeline] stage=translator_passthrough provider=$providerId targetLanguage=$targetLanguage textLength=${text.length}"
+            "[TranslationPipeline] stage=translator_passthrough provider=$providerId targetLanguage=$targetLanguage bitmap=${bitmap.width}x${bitmap.height}"
         }
-        return text
+        return null
     }
 }

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -21,9 +22,11 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.translation.ReaderTranslationCoordinator
+import eu.kanade.translation.model.BubbleTranslationStatus
 import eu.kanade.translation.model.TranslationPageContext
 import eu.kanade.translation.model.TranslationPageState
 import eu.kanade.translation.presentation.PageAnalysisOverlayView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
@@ -56,13 +59,15 @@ class WebtoonPageHolder(
     private val frame: ReaderPageImageView,
     viewer: WebtoonViewer,
     private val translationCoordinator: ReaderTranslationCoordinator = Injekt.get(),
-    translationPreferences: TranslationPreferences = Injekt.get(),
-    readerPreferences: ReaderPreferences = Injekt.get(),
+    private val translationPreferences: TranslationPreferences = Injekt.get(),
+    private val readerPreferences: ReaderPreferences = Injekt.get(),
 ) : WebtoonBaseHolder(frame, viewer) {
     private var featureEnabled = translationPreferences.enabled.get()
     private var showTranslations = readerPreferences.showTranslations.get()
     private var translationsView: View? = null
     private var analysisJob: Job? = null
+    private var bubbleTranslationJob: Job? = null
+    private var preferenceJobs: List<Job> = emptyList()
 
     /**
      * Loading progress bar to indicate the current progress.
@@ -104,14 +109,32 @@ class WebtoonPageHolder(
         frame.onImageLoaded = { onImageDecoded() }
         frame.onImageLoadError = { error -> setError(error) }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
-        translationPreferences.enabled.changes().onEach {
-            featureEnabled = it
-            refreshTranslationsView()
-        }.launchIn(scope)
-        readerPreferences.showTranslations.changes().onEach {
-            showTranslations = it
-            translationsView?.isVisible = it
-        }.launchIn(scope)
+        startPreferenceObservers()
+    }
+
+    private fun startPreferenceObservers() {
+        featureEnabled = translationPreferences.enabled.get()
+        showTranslations = readerPreferences.showTranslations.get()
+        translationsView?.isVisible = featureEnabled && showTranslations
+        preferenceJobs.forEach { it.cancel() }
+        preferenceJobs = listOf(
+            translationPreferences.enabled.changes().onEach {
+                featureEnabled = it
+                if (!it) {
+                    bubbleTranslationJob?.cancel()
+                    bubbleTranslationJob = null
+                }
+                refreshTranslationsView()
+            }.launchIn(scope),
+            readerPreferences.showTranslations.changes().onEach {
+                showTranslations = it
+                if (!it) {
+                    bubbleTranslationJob?.cancel()
+                    bubbleTranslationJob = null
+                }
+                translationsView?.isVisible = featureEnabled && it
+            }.launchIn(scope),
+        )
     }
 
     /**
@@ -121,6 +144,11 @@ class WebtoonPageHolder(
         this.page = page
         loadJob?.cancel()
         analysisJob?.cancel()
+        bubbleTranslationJob?.cancel()
+        removeErrorLayout()
+        translationsView?.let(frame::removeView)
+        translationsView = null
+        startPreferenceObservers()
         loadJob = scope.launch { loadPageAndProcessStatus() }
         refreshLayoutParams()
     }
@@ -145,6 +173,10 @@ class WebtoonPageHolder(
         loadJob = null
         analysisJob?.cancel()
         analysisJob = null
+        bubbleTranslationJob?.cancel()
+        bubbleTranslationJob = null
+        preferenceJobs.forEach { it.cancel() }
+        preferenceJobs = emptyList()
 
         removeErrorLayout()
         translationsView?.let(frame::removeView)
@@ -291,7 +323,22 @@ class WebtoonPageHolder(
         progressContainer.isVisible = false
         removeErrorLayout()
         updateOverlayScale()
-        translationsView?.isVisible = showTranslations
+        translationsView?.isVisible = featureEnabled && showTranslations
+    }
+
+    private fun translationPageContext(page: ReaderPage): TranslationPageContext? {
+        val chapter = page.chapter.chapter
+        val chapterId = chapter.id ?: return null
+        val mangaId = chapter.manga_id ?: return null
+        return TranslationPageContext(
+            sourceId = 0L,
+            mangaId = mangaId,
+            chapterId = chapterId,
+            chapterName = chapter.name,
+            pageIndex = page.index,
+            imageUrl = page.imageUrl,
+            isLocal = page.chapter.pageLoader?.isLocal == true,
+        )
     }
 
     private fun refreshTranslationsView() {
@@ -312,30 +359,95 @@ class WebtoonPageHolder(
                 "[TranslationPipeline] source=webtoon stage=request_analysis pageIndex=${currentPage.index}"
             }
             currentPage.analysisState = TranslationPageState.Loading
-            val chapter = currentPage.chapter.chapter
-            val chapterId = chapter.id ?: return@launch
-            val mangaId = chapter.manga_id ?: return@launch
             val streamProvider = currentPage.stream ?: return@launch
-            val context = TranslationPageContext(
-                sourceId = 0L,
-                mangaId = mangaId,
-                chapterId = chapterId,
-                chapterName = chapter.name,
-                pageIndex = currentPage.index,
-                imageUrl = currentPage.imageUrl,
-                isLocal = currentPage.chapter.pageLoader?.isLocal == true,
-            )
-            val analysis = translationCoordinator.getOrCreate(context, streamProvider)
+            val pageContext = translationPageContext(currentPage) ?: return@launch
+            val analysis = translationCoordinator.getOrCreate(pageContext, streamProvider)
             withUIContext {
-                currentPage.analysis = analysis
-                currentPage.analysisState = analysis?.let { TranslationPageState.Ready(it) }
-                    ?: TranslationPageState.Error("No analysis available")
-                logcat(LogPriority.INFO) {
-                    "[TranslationPipeline] source=webtoon stage=analysis_result pageIndex=${currentPage.index} result=${if (analysis != null) "ready" else "empty"}"
+                if (page === currentPage) {
+                    currentPage.analysis = analysis
+                    currentPage.analysisState = analysis?.let { TranslationPageState.Ready(it) }
+                        ?: TranslationPageState.Error("No analysis available")
+                    logcat(LogPriority.INFO) {
+                        "[TranslationPipeline] source=webtoon stage=analysis_result pageIndex=${currentPage.index} result=${if (analysis != null) "ready" else "empty"}"
+                    }
+                    addTranslationsView()
                 }
-                addTranslationsView()
             }
         }
+    }
+
+    fun handleTranslationTap(event: MotionEvent): Boolean {
+        if (!featureEnabled || !showTranslations) {
+            return false
+        }
+        val currentPage = page ?: return false
+        val overlay = translationsView as? PageAnalysisOverlayView ?: return false
+        if (!overlay.isVisible || currentPage.analysis == null) {
+            return false
+        }
+        val streamProvider = currentPage.stream ?: return false
+        val pageContext = translationPageContext(currentPage) ?: return false
+
+        updateOverlayScale()
+        val bubble = overlay.hitBubble(
+            viewX = event.x - frame.x,
+            viewY = event.y - frame.y,
+        ) ?: return false
+
+        bubbleTranslationJob?.cancel()
+        bubbleTranslationJob = scope.launch {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] source=webtoon stage=bubble_tap pageIndex=${currentPage.index} bubbleId=${bubble.id}"
+            }
+            try {
+                val updatedAnalysis = translationCoordinator.translateBubble(pageContext, bubble.id, streamProvider)
+                withUIContext {
+                    if (page === currentPage && featureEnabled && showTranslations && updatedAnalysis != null) {
+                        currentPage.analysis = updatedAnalysis
+                        currentPage.analysisState = TranslationPageState.Ready(updatedAnalysis)
+                        addTranslationsView()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logcat(LogPriority.ERROR, e) {
+                    "[TranslationPipeline] source=webtoon stage=bubble_translate_error pageIndex=${currentPage.index} bubbleId=${bubble.id}"
+                }
+                withUIContext {
+                    updateBubbleTranslationError(currentPage, bubble.id)
+                }
+            }
+        }
+        return true
+    }
+
+    private fun updateBubbleTranslationError(currentPage: ReaderPage, bubbleId: String) {
+        if (page !== currentPage || !featureEnabled || !showTranslations) {
+            return
+        }
+        val analysis = currentPage.analysis ?: return
+        val updatedAnalysis = analysis.copy(
+            regions = analysis.regions.map { region ->
+                if (region.id != bubbleId) {
+                    return@map region
+                }
+                if (
+                    region.translationStatus == BubbleTranslationStatus.Translated &&
+                    !region.translatedText.isNullOrBlank()
+                ) {
+                    region
+                } else {
+                    region.copy(
+                        translationStatus = BubbleTranslationStatus.Error,
+                        errorMessage = "Bubble translation failed",
+                    )
+                }
+            },
+        )
+        currentPage.analysis = updatedAnalysis
+        currentPage.analysisState = TranslationPageState.Ready(updatedAnalysis)
+        addTranslationsView()
     }
 
     private fun addTranslationsView() {
@@ -343,7 +455,7 @@ class WebtoonPageHolder(
         translationsView = null
         val analysis = page?.analysis ?: return
         val overlay = PageAnalysisOverlayView(context, analysis = analysis)
-        overlay.isVisible = showTranslations
+        overlay.isVisible = featureEnabled && showTranslations
         translationsView = overlay
         frame.addView(overlay, MATCH_PARENT, MATCH_PARENT)
         updateOverlayScale()

@@ -107,6 +107,15 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     protected fun subsamplingImageView(): SubsamplingScaleImageView? = pageView as? SubsamplingScaleImageView
 
+    protected fun hasLoadedImage(): Boolean {
+        val currentPageView = pageView ?: return false
+        return when (currentPageView) {
+            is SubsamplingScaleImageView -> currentPageView.isReady && currentPageView.isVisible
+            is AppCompatImageView -> currentPageView.drawable != null && currentPageView.isVisible
+            else -> false
+        }
+    }
+
     open fun onPageSelected(forward: Boolean) {
         with(pageView as? SubsamplingScaleImageView) {
             if (this == null) return

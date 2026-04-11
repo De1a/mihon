@@ -26,13 +26,25 @@ data class DetectedRegion(
 )
 
 @Serializable
+enum class BubbleTranslationStatus {
+    Pending,
+    Translated,
+    Error,
+}
+
+@Serializable
 data class BubbleRegion(
-    val text: String,
-    val translatedText: String = "",
+    val id: String = "",
+    val sourceText: String? = null,
+    val translatedText: String? = null,
     val x: Float,
     val y: Float,
     val width: Float,
     val height: Float,
     val paddingX: Float = 0f,
     val paddingY: Float = 0f,
+    val confidence: Float = 0f,
+    val translationStatus: BubbleTranslationStatus = BubbleTranslationStatus.Pending,
+    val providerId: String? = null,
+    val errorMessage: String? = null,
 )

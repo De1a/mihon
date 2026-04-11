@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PointF
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import androidx.core.view.isVisible
 import eu.kanade.presentation.util.formattedMessage
@@ -17,9 +18,11 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
 import eu.kanade.translation.ReaderTranslationCoordinator
+import eu.kanade.translation.model.BubbleTranslationStatus
 import eu.kanade.translation.model.TranslationPageContext
 import eu.kanade.translation.model.TranslationPageState
 import eu.kanade.translation.presentation.PageAnalysisOverlayView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
@@ -50,13 +53,15 @@ class PagerPageHolder(
     val viewer: PagerViewer,
     val page: ReaderPage,
     private val translationCoordinator: ReaderTranslationCoordinator = Injekt.get(),
-    translationPreferences: TranslationPreferences = Injekt.get(),
-    readerPreferences: ReaderPreferences = Injekt.get(),
+    private val translationPreferences: TranslationPreferences = Injekt.get(),
+    private val readerPreferences: ReaderPreferences = Injekt.get(),
 ) : ReaderPageImageView(readerThemedContext), ViewPagerAdapter.PositionableView {
     private var featureEnabled = translationPreferences.enabled.get()
     private var showTranslations = readerPreferences.showTranslations.get()
     private var translationsView: View? = null
     private var analysisJob: Job? = null
+    private var bubbleTranslationJob: Job? = null
+    private var preferenceJobs: List<Job> = emptyList()
 
     /**
      * Item that identifies this view. Needed by the adapter to not recreate views.
@@ -83,14 +88,78 @@ class PagerPageHolder(
 
     init {
         loadJob = scope.launch { loadPageAndProcessStatus() }
-        translationPreferences.enabled.changes().onEach {
-            featureEnabled = it
+        startPreferenceObservers()
+    }
+
+    private fun startPreferenceObservers() {
+        featureEnabled = translationPreferences.enabled.get()
+        showTranslations = readerPreferences.showTranslations.get()
+        translationsView?.isVisible = featureEnabled && showTranslations
+        preferenceJobs.forEach { it.cancel() }
+        preferenceJobs = listOf(
+            translationPreferences.enabled.changes().onEach {
+                featureEnabled = it
+                if (!it) {
+                    bubbleTranslationJob?.cancel()
+                    bubbleTranslationJob = null
+                }
+                refreshTranslationsView()
+            }.launchIn(scope),
+            readerPreferences.showTranslations.changes().onEach {
+                showTranslations = it
+                if (!it) {
+                    bubbleTranslationJob?.cancel()
+                    bubbleTranslationJob = null
+                }
+                translationsView?.isVisible = featureEnabled && it
+            }.launchIn(scope),
+        )
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (preferenceJobs.isEmpty()) {
+            startPreferenceObservers()
+        }
+        if (loadJob == null) {
+            if (page.status == Page.State.Ready) {
+                if (hasLoadedImage()) {
+                    restoreReadyPageState()
+                } else {
+                    loadJob = scope.launch { restoreReadyImageState() }
+                }
+            } else {
+                loadJob = scope.launch { loadPageAndProcessStatus() }
+            }
+        }
+    }
+
+    private suspend fun restoreReadyImageState() {
+        try {
+            setImage()
             refreshTranslationsView()
-        }.launchIn(scope)
-        readerPreferences.showTranslations.changes().onEach {
-            showTranslations = it
-            translationsView?.isVisible = it
-        }.launchIn(scope)
+        } finally {
+            loadJob = null
+        }
+    }
+
+    private fun restoreReadyPageState() {
+        progressIndicator?.hide()
+        removeErrorLayout()
+        if (!featureEnabled) {
+            translationsView?.let(::removeView)
+            translationsView = null
+            page.analysis = null
+            page.analysisState = TranslationPageState.Idle
+            return
+        }
+        if (page.analysis != null && translationsView == null) {
+            addTranslationsView()
+        } else if (page.analysis == null) {
+            refreshTranslationsView()
+        }
+        updateTranslationCoords()
+        translationsView?.isVisible = featureEnabled && showTranslations
     }
 
     /**
@@ -103,6 +172,10 @@ class PagerPageHolder(
         loadJob = null
         analysisJob?.cancel()
         analysisJob = null
+        bubbleTranslationJob?.cancel()
+        bubbleTranslationJob = null
+        preferenceJobs.forEach { it.cancel() }
+        preferenceJobs = emptyList()
     }
 
     private fun initProgressIndicator() {
@@ -250,6 +323,21 @@ class PagerPageHolder(
         }
     }
 
+    private fun translationPageContext(): TranslationPageContext? {
+        val chapter = page.chapter.chapter
+        val chapterId = chapter.id ?: return null
+        val mangaId = chapter.manga_id ?: return null
+        return TranslationPageContext(
+            sourceId = 0L,
+            mangaId = mangaId,
+            chapterId = chapterId,
+            chapterName = chapter.name,
+            pageIndex = page.index,
+            imageUrl = page.imageUrl,
+            isLocal = page.chapter.pageLoader?.isLocal == true,
+        )
+    }
+
     private fun refreshTranslationsView() {
         analysisJob?.cancel()
         if (!featureEnabled) {
@@ -267,20 +355,9 @@ class PagerPageHolder(
                 "[TranslationPipeline] source=pager stage=request_analysis pageIndex=${page.index}"
             }
             page.analysisState = TranslationPageState.Loading
-            val chapter = page.chapter.chapter
-            val chapterId = chapter.id ?: return@launch
-            val mangaId = chapter.manga_id ?: return@launch
             val streamProvider = page.stream ?: return@launch
-            val context = TranslationPageContext(
-                sourceId = 0L,
-                mangaId = mangaId,
-                chapterId = chapterId,
-                chapterName = chapter.name,
-                pageIndex = page.index,
-                imageUrl = page.imageUrl,
-                isLocal = page.chapter.pageLoader?.isLocal == true,
-            )
-            val analysis = translationCoordinator.getOrCreate(context, streamProvider)
+            val pageContext = translationPageContext() ?: return@launch
+            val analysis = translationCoordinator.getOrCreate(pageContext, streamProvider)
             withUIContext {
                 page.analysis = analysis
                 page.analysisState = analysis?.let { TranslationPageState.Ready(it) }
@@ -294,12 +371,89 @@ class PagerPageHolder(
         }
     }
 
+    fun handleTranslationTap(event: MotionEvent): Boolean {
+        if (!featureEnabled || !showTranslations) {
+            return false
+        }
+        val overlay = translationsView as? PageAnalysisOverlayView ?: return false
+        if (!overlay.isVisible || page.analysis == null) {
+            return false
+        }
+        val streamProvider = page.stream ?: return false
+        val pageContext = translationPageContext() ?: return false
+
+        updateTranslationCoords()
+        val viewPosition = IntArray(2)
+        getLocationOnScreen(viewPosition)
+        val bubble = overlay.hitBubble(
+            viewX = event.rawX - viewPosition[0],
+            viewY = event.rawY - viewPosition[1],
+        ) ?: return false
+
+        bubbleTranslationJob?.cancel()
+        bubbleTranslationJob = scope.launch {
+            logcat(LogPriority.INFO) {
+                "[TranslationPipeline] source=pager stage=bubble_tap pageIndex=${page.index} bubbleId=${bubble.id}"
+            }
+            try {
+                val updatedAnalysis = translationCoordinator.translateBubble(pageContext, bubble.id, streamProvider)
+                withUIContext {
+                    if (featureEnabled && showTranslations && updatedAnalysis != null) {
+                        page.analysis = updatedAnalysis
+                        page.analysisState = TranslationPageState.Ready(updatedAnalysis)
+                        addTranslationsView()
+                        updateTranslationCoords()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logcat(LogPriority.ERROR, e) {
+                    "[TranslationPipeline] source=pager stage=bubble_translate_error pageIndex=${page.index} bubbleId=${bubble.id}"
+                }
+                withUIContext {
+                    updateBubbleTranslationError(bubble.id)
+                }
+            }
+        }
+        return true
+    }
+
+    private fun updateBubbleTranslationError(bubbleId: String) {
+        if (!featureEnabled || !showTranslations) {
+            return
+        }
+        val analysis = page.analysis ?: return
+        val updatedAnalysis = analysis.copy(
+            regions = analysis.regions.map { region ->
+                if (region.id != bubbleId) {
+                    return@map region
+                }
+                if (
+                    region.translationStatus == BubbleTranslationStatus.Translated &&
+                    !region.translatedText.isNullOrBlank()
+                ) {
+                    region
+                } else {
+                    region.copy(
+                        translationStatus = BubbleTranslationStatus.Error,
+                        errorMessage = "Bubble translation failed",
+                    )
+                }
+            },
+        )
+        page.analysis = updatedAnalysis
+        page.analysisState = TranslationPageState.Ready(updatedAnalysis)
+        addTranslationsView()
+        updateTranslationCoords()
+    }
+
     private fun addTranslationsView() {
         translationsView?.let(::removeView)
         translationsView = null
         val analysis = page.analysis ?: return
         val overlay = PageAnalysisOverlayView(context, analysis = analysis)
-        overlay.isVisible = showTranslations
+        overlay.isVisible = featureEnabled && showTranslations
         translationsView = overlay
         addView(overlay)
         logcat(LogPriority.INFO) {
@@ -353,7 +507,7 @@ class PagerPageHolder(
         super.onImageLoaded()
         progressIndicator?.hide()
         updateTranslationCoords()
-        translationsView?.isVisible = showTranslations
+        translationsView?.isVisible = featureEnabled && showTranslations
     }
 
     /**

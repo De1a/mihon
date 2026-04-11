@@ -111,7 +111,12 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
                 }
             },
         )
-        recycler.tapListener = { event ->
+        recycler.tapListener = f@{ event ->
+            val child = recycler.findChildViewUnder(event.x, event.y)
+            val holder = child?.let(recycler::getChildViewHolder) as? WebtoonPageHolder
+            if (holder?.handleTranslationTap(event) == true) {
+                return@f
+            }
             val viewPosition = IntArray(2)
             recycler.getLocationOnScreen(viewPosition)
             val viewPositionRelativeToWindow = IntArray(2)

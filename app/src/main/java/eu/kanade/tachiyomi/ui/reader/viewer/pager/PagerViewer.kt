@@ -101,7 +101,10 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         pager.id = R.id.reader_pager
         pager.adapter = adapter
         pager.addOnPageChangeListener(pagerListener)
-        pager.tapListener = { event ->
+        pager.tapListener = f@{ event ->
+            if ((currentPage as? ReaderPage)?.let(::getPageHolder)?.handleTranslationTap(event) == true) {
+                return@f
+            }
             val viewPosition = IntArray(2)
             pager.getLocationOnScreen(viewPosition)
             val viewPositionRelativeToWindow = IntArray(2)

@@ -23,17 +23,17 @@ class PageAnalysisRepository(
     fun get(key: String): PageAnalysis? {
         val file = File(cacheDir(), "$key.json")
         if (!file.exists()) {
-            logcat(LogPriority.INFO) { "[$logTag] stage=cache_read_miss pageKey=$key" }
+            logcat(LogPriority.INFO) { "[$logTag] stage=cache_read_miss" }
             return null
         }
         return runCatching {
             file.inputStream().use { json.decodeFromStream<PageAnalysis>(it) }
         }
             .onSuccess {
-                logcat(LogPriority.INFO) { "[$logTag] stage=cache_read_hit pageKey=$key" }
+                logcat(LogPriority.INFO) { "[$logTag] stage=cache_read_hit" }
             }
             .onFailure { error ->
-                logcat(LogPriority.WARN, error) { "[$logTag] stage=cache_read_corrupt pageKey=$key" }
+                logcat(LogPriority.WARN, error) { "[$logTag] stage=cache_read_corrupt" }
             }
             .getOrNull()
     }
@@ -42,12 +42,12 @@ class PageAnalysisRepository(
         val file = File(cacheDir(), "$key.json")
         file.outputStream().use { json.encodeToStream(analysis, it) }
         logcat(LogPriority.INFO) {
-            "[$logTag] stage=cache_write_success pageKey=$key regions=${analysis.regions.size} modelVersion=${analysis.modelVersion}"
+            "[$logTag] stage=cache_write_success regions=${analysis.regions.size} modelVersion=${analysis.modelVersion}"
         }
     }
 
     fun delete(key: String) {
         File(cacheDir(), "$key.json").delete()
-        logcat(LogPriority.INFO) { "[$logTag] stage=cache_delete pageKey=$key" }
+        logcat(LogPriority.INFO) { "[$logTag] stage=cache_delete" }
     }
 }

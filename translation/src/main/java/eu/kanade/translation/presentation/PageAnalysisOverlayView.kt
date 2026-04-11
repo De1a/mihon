@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PointF
 import android.util.AttributeSet
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
@@ -56,6 +57,16 @@ class PageAnalysisOverlayView :
     val scaleState = MutableStateFlow(1f)
     val viewTLState = MutableStateFlow(PointF())
 
+    fun hitBubble(viewX: Float, viewY: Float): BubbleRegion? =
+        PageAnalysisOverlayContent.hitBubble(
+            regions = analysis.regions,
+            viewX = viewX,
+            viewY = viewY,
+            viewTLX = viewTLState.value.x,
+            viewTLY = viewTLState.value.y,
+            scale = scaleState.value,
+        )
+
     @Composable
     override fun Content() {
         val scale by scaleState.collectAsState()
@@ -77,14 +88,28 @@ class PageAnalysisOverlayView :
         val y = (region.y - region.paddingY / 2f).coerceAtLeast(0f) * scale
         val width = ((region.width + region.paddingX) * scale).coerceAtLeast(1f).pxToDp()
         val height = ((region.height + region.paddingY) * scale).coerceAtLeast(1f).pxToDp()
+        val displayText = PageAnalysisOverlayContent.displayText(region)
+        val shape = RoundedCornerShape(12.dp)
+        val modifier = Modifier
+            .offset(x.pxToDp(), y.pxToDp())
+            .requiredSize(width, height)
+
+        if (displayText == null) {
+            Box(
+                modifier = modifier.border(
+                    width = 2.dp,
+                    color = Color.White.copy(alpha = 0.9f),
+                    shape = shape,
+                ),
+            )
+            return
+        }
+
         Box(
-            modifier = Modifier
-                .offset(x.pxToDp(), y.pxToDp())
-                .requiredSize(width, height)
-                .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(12.dp)),
+            modifier = modifier.background(Color.White.copy(alpha = 0.92f), shape),
             contentAlignment = Alignment.Center,
         ) {
-            FitText(region.translatedText.ifBlank { region.text }, width, height)
+            FitText(displayText, width, height)
         }
     }
 
@@ -133,6 +158,42 @@ class PageAnalysisOverlayView :
 
     fun hide() {
         isVisible = false
+    }
+}
+
+object PageAnalysisOverlayContent {
+    fun displayText(region: BubbleRegion): String? {
+        val translatedText = region.translatedText?.takeIf { it.isNotBlank() }
+        if (translatedText != null) {
+            return translatedText
+        }
+
+        return region.sourceText?.takeIf { it.isNotBlank() }
+    }
+
+    fun hitBubble(
+        regions: List<BubbleRegion>,
+        viewX: Float,
+        viewY: Float,
+        viewTLX: Float,
+        viewTLY: Float,
+        scale: Float,
+    ): BubbleRegion? {
+        if (scale <= 0f) {
+            return null
+        }
+
+        val sourceX = (viewX - viewTLX) / scale
+        val sourceY = (viewY - viewTLY) / scale
+        return regions.asReversed().firstOrNull { region -> region.containsSourcePoint(sourceX, sourceY) }
+    }
+
+    private fun BubbleRegion.containsSourcePoint(sourceX: Float, sourceY: Float): Boolean {
+        val left = (x - paddingX / 2f).coerceAtLeast(0f)
+        val top = (y - paddingY / 2f).coerceAtLeast(0f)
+        val right = left + (width + paddingX).coerceAtLeast(1f)
+        val bottom = top + (height + paddingY).coerceAtLeast(1f)
+        return sourceX >= left && sourceX <= right && sourceY >= top && sourceY <= bottom
     }
 }
 
