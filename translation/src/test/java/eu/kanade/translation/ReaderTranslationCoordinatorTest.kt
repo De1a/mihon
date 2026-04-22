@@ -2,7 +2,6 @@ package eu.kanade.translation
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import eu.kanade.translation.model.BubbleRegion
 import eu.kanade.translation.model.BubbleTranslationStatus
 import eu.kanade.translation.model.DetectedRegion
@@ -15,11 +14,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import tachiyomi.core.common.preference.InMemoryPreferenceStore
@@ -35,6 +31,9 @@ class ReaderTranslationCoordinatorTest {
     private lateinit var ocrEngine: MangaOcrEngine
     private lateinit var apiTranslationService: ApiTranslationService
     private lateinit var cloudPageAnalysisService: CloudPageAnalysisService
+    private lateinit var decodedBitmaps: ArrayDeque<Bitmap>
+    private lateinit var croppedBitmaps: ArrayDeque<Bitmap?>
+    private lateinit var cropRequests: MutableList<Pair<Bitmap, BubbleRegion>>
     private lateinit var coordinator: ReaderTranslationCoordinator
 
     @BeforeEach
@@ -51,6 +50,9 @@ class ReaderTranslationCoordinatorTest {
         ocrEngine = mockk()
         apiTranslationService = mockk()
         cloudPageAnalysisService = mockk()
+        decodedBitmaps = ArrayDeque()
+        croppedBitmaps = ArrayDeque()
+        cropRequests = mutableListOf()
 
         every { bubbleDetector.modelVersion } returns "detector-test"
         every { ocrEngine.modelVersion } returns "ocr-test"
@@ -65,12 +67,12 @@ class ReaderTranslationCoordinatorTest {
             ocrEngine = ocrEngine,
             apiTranslationService = apiTranslationService,
             cloudPageAnalysisService = cloudPageAnalysisService,
+            bitmapDecoder = { if (decodedBitmaps.isEmpty()) null else decodedBitmaps.removeFirst() },
+            bubbleBitmapCropper = { bitmap, region ->
+                cropRequests += bitmap to region
+                if (croppedBitmaps.isEmpty()) null else croppedBitmaps.removeFirst()
+            },
         )
-    }
-
-    @AfterEach
-    fun tearDown() {
-        unmockkAll()
     }
 
     @Test
@@ -108,9 +110,8 @@ class ReaderTranslationCoordinatorTest {
 
     @Test
     fun `getOrCreateDetection stores bbox only regions when cache is missing`() = runTest {
-        mockkStatic(BitmapFactory::class)
         val decodedBitmap = mockk<Bitmap>()
-        every { BitmapFactory.decodeStream(any()) } returns decodedBitmap
+        decodedBitmaps.add(decodedBitmap)
         every { decodedBitmap.width } returns 1080
         every { decodedBitmap.height } returns 1920
         every { repository.get(any()) } returns null
@@ -165,11 +166,11 @@ class ReaderTranslationCoordinatorTest {
 
     @Test
     fun `getOrCreateDetection re analyzes cloud page when system prompt changes`() = runTest {
-        mockkStatic(BitmapFactory::class)
         val decodedBitmap = mockk<Bitmap>()
         val storedAnalyses = mutableMapOf<String, PageAnalysis>()
         preferences.pipelineMode.set("cloud")
-        every { BitmapFactory.decodeStream(any()) } returns decodedBitmap
+        decodedBitmaps.add(decodedBitmap)
+        decodedBitmaps.add(decodedBitmap)
         every { decodedBitmap.width } returns 1080
         every { decodedBitmap.height } returns 1920
         every { repository.get(any()) } answers { storedAnalyses[firstArg()] }
@@ -223,14 +224,12 @@ class ReaderTranslationCoordinatorTest {
 
     @Test
     fun `translateBubble crops selected region and persists translated result only for that bubble`() = runTest {
-        mockkStatic(BitmapFactory::class)
-        mockkStatic(Bitmap::class)
         val pageBitmap = mockk<Bitmap>()
         val croppedBitmap = mockk<Bitmap>()
-        every { BitmapFactory.decodeStream(any()) } returns pageBitmap
+        decodedBitmaps.add(pageBitmap)
+        croppedBitmaps.add(croppedBitmap)
         every { pageBitmap.width } returns 1080
         every { pageBitmap.height } returns 1920
-        every { Bitmap.createBitmap(pageBitmap, 10, 20, 100, 200) } returns croppedBitmap
         every { repository.get(any()) } returns PageAnalysis(
             imageWidth = 1080f,
             imageHeight = 1920f,
@@ -314,14 +313,12 @@ class ReaderTranslationCoordinatorTest {
 
     @Test
     fun `translateBubble stores error state when translation result is empty`() = runTest {
-        mockkStatic(BitmapFactory::class)
-        mockkStatic(Bitmap::class)
         val pageBitmap = mockk<Bitmap>()
         val croppedBitmap = mockk<Bitmap>()
-        every { BitmapFactory.decodeStream(any()) } returns pageBitmap
+        decodedBitmaps.add(pageBitmap)
+        croppedBitmaps.add(croppedBitmap)
         every { pageBitmap.width } returns 1080
         every { pageBitmap.height } returns 1920
-        every { Bitmap.createBitmap(pageBitmap, 10, 20, 100, 200) } returns croppedBitmap
         every { repository.get(any()) } returns PageAnalysis(
             imageWidth = 1080f,
             imageHeight = 1920f,
@@ -374,18 +371,17 @@ class ReaderTranslationCoordinatorTest {
 
     @Test
     fun `translateBubble re translates when system prompt changes`() = runTest {
-        mockkStatic(BitmapFactory::class)
-        mockkStatic(Bitmap::class)
         val pageBitmap = mockk<Bitmap>()
         val firstCroppedBitmap = mockk<Bitmap>()
         val secondCroppedBitmap = mockk<Bitmap>()
         val storedAnalyses = mutableMapOf<String, PageAnalysis>()
-        every { BitmapFactory.decodeStream(any()) } returns pageBitmap
+        repeat(4) {
+            decodedBitmaps.add(pageBitmap)
+        }
+        croppedBitmaps.add(firstCroppedBitmap)
+        croppedBitmaps.add(secondCroppedBitmap)
         every { pageBitmap.width } returns 1080
         every { pageBitmap.height } returns 1920
-        every {
-            Bitmap.createBitmap(pageBitmap, 10, 20, 100, 200)
-        } returnsMany listOf(firstCroppedBitmap, secondCroppedBitmap)
         every { repository.get(any()) } answers { storedAnalyses[firstArg()] }
         every { repository.put(any(), any()) } answers {
             storedAnalyses[firstArg()] = secondArg()

@@ -23,6 +23,8 @@ class ReaderTranslationCoordinator(
     private val ocrEngine: MangaOcrEngine,
     private val apiTranslationService: ApiTranslationService,
     private val cloudPageAnalysisService: CloudPageAnalysisService,
+    private val bitmapDecoder: (() -> java.io.InputStream) -> Bitmap? = ::decodeBitmap,
+    private val bubbleBitmapCropper: (Bitmap, BubbleRegion) -> Bitmap? = ::cropBubbleBitmap,
 ) {
     suspend fun getOrCreate(
         pageContext: TranslationPageContext,
@@ -55,7 +57,7 @@ class ReaderTranslationCoordinator(
         }
 
         val analysis = withContext(Dispatchers.IO) {
-            val bitmap = streamProvider().use { BitmapFactory.decodeStream(it) }
+            val bitmap = bitmapDecoder(streamProvider)
             if (bitmap == null) {
                 logcat(LogPriority.WARN) {
                     "[TranslationPipeline] stage=decode_bitmap_fail mode=$mode"
@@ -90,7 +92,8 @@ class ReaderTranslationCoordinator(
             repository.put(pageKey, analysis)
         }
         logcat(LogPriority.INFO) {
-            "[TranslationPipeline] stage=detection_saved regions=${analysis.regions.size} modelVersion=${analysis.modelVersion}"
+            "[TranslationPipeline] stage=detection_saved regions=${analysis.regions.size} " +
+                "modelVersion=${analysis.modelVersion}"
         }
         return analysis
     }
@@ -143,14 +146,14 @@ class ReaderTranslationCoordinator(
         }
 
         val translatedRegion = withContext(Dispatchers.IO) {
-            val bitmap = streamProvider().use { BitmapFactory.decodeStream(it) }
+            val bitmap = bitmapDecoder(streamProvider)
             if (bitmap == null) {
                 logcat(LogPriority.WARN) {
                     "[TranslationPipeline] stage=bubble_translate_decode_fail bubbleId=$bubbleId"
                 }
                 return@withContext null
             }
-            val cropped = bitmap.cropRegion(existingRegion)
+            val cropped = bubbleBitmapCropper(bitmap, existingRegion)
             if (cropped == null) {
                 logcat(LogPriority.WARN) {
                     "[TranslationPipeline] stage=bubble_translate_crop_fail bubbleId=$bubbleId"
@@ -167,7 +170,8 @@ class ReaderTranslationCoordinator(
             )
             if (result == null) {
                 logcat(LogPriority.WARN) {
-                    "[TranslationPipeline] stage=bubble_translate_empty bubbleId=$bubbleId provider=${apiTranslationService.providerId}"
+                    "[TranslationPipeline] stage=bubble_translate_empty bubbleId=$bubbleId " +
+                        "provider=${apiTranslationService.providerId}"
                 }
                 return@withContext existingRegion.copy(
                     translationStatus = BubbleTranslationStatus.Error,
@@ -192,7 +196,8 @@ class ReaderTranslationCoordinator(
             repository.put(pageKey, updatedAnalysis)
         }
         logcat(LogPriority.INFO) {
-            "[TranslationPipeline] stage=bubble_translate_saved bubbleId=$bubbleId status=${translatedRegion.translationStatus}"
+            "[TranslationPipeline] stage=bubble_translate_saved bubbleId=$bubbleId " +
+                "status=${translatedRegion.translationStatus}"
         }
         return updatedAnalysis
     }
@@ -287,27 +292,20 @@ class ReaderTranslationCoordinator(
             append(bubbleDetector.modelVersion)
         }
 
-    private fun Bitmap.cropRegion(region: DetectedRegion): Bitmap? {
-        val left = (region.x - region.paddingX / 2f).toInt().coerceIn(0, width - 1)
-        val top = (region.y - region.paddingY / 2f).toInt().coerceIn(0, height - 1)
-        val right = (region.x + region.width + region.paddingX / 2f).toInt().coerceIn(left + 1, width)
-        val bottom = (region.y + region.height + region.paddingY / 2f).toInt().coerceIn(top + 1, height)
-        return runCatching {
-            Bitmap.createBitmap(this, left, top, right - left, bottom - top)
-        }.getOrNull()
-    }
-
-    private fun Bitmap.cropRegion(region: BubbleRegion): Bitmap? {
-        val left = (region.x - region.paddingX / 2f).toInt().coerceIn(0, width - 1)
-        val top = (region.y - region.paddingY / 2f).toInt().coerceIn(0, height - 1)
-        val right = (region.x + region.width + region.paddingX / 2f).toInt().coerceIn(left + 1, width)
-        val bottom = (region.y + region.height + region.paddingY / 2f).toInt().coerceIn(top + 1, height)
-        return runCatching {
-            Bitmap.createBitmap(this, left, top, right - left, bottom - top)
-        }.getOrNull()
-    }
-
     private companion object {
         const val PIPELINE_MODE_CLOUD = "cloud"
     }
+}
+
+private fun decodeBitmap(streamProvider: () -> java.io.InputStream): Bitmap? =
+    streamProvider().use { BitmapFactory.decodeStream(it) }
+
+private fun cropBubbleBitmap(bitmap: Bitmap, region: BubbleRegion): Bitmap? {
+    val left = (region.x - region.paddingX / 2f).toInt().coerceIn(0, bitmap.width - 1)
+    val top = (region.y - region.paddingY / 2f).toInt().coerceIn(0, bitmap.height - 1)
+    val right = (region.x + region.width + region.paddingX / 2f).toInt().coerceIn(left + 1, bitmap.width)
+    val bottom = (region.y + region.height + region.paddingY / 2f).toInt().coerceIn(top + 1, bitmap.height)
+    return runCatching {
+        Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+    }.getOrNull()
 }
