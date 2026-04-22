@@ -8,6 +8,7 @@ build
 .idea/*
 !.idea/icon.svg
 /captures
+translation/src/test
 
 # Configuration files
 local.properties
