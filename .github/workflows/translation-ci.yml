@@ -1,0 +1,82 @@
+name: Translation CI
+
+# Fast feedback for the overlay-translation refactor.
+# Stage 1 (fast-gate): spotless + translation unit tests   ~2-4 min
+# Stage 2 (full-build): assembleDebug, only if stage 1 is green
+# Manual run: gh workflow run translation-ci.yml --ref trai
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [trai]
+    paths:
+      - 'translation/**'
+      - 'domain/**/translation/**'
+      - 'app/**/reader/viewer/**'
+      - '.github/workflows/translation-ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fast-gate:
+    name: Lint + Translation Unit Tests
+    runs-on: 'ubuntu-24.04'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version-file: .github/.java-version
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+
+      - name: Check translation code format
+        run: ./gradlew :translation:spotlessCheck
+
+      - name: Run translation unit tests
+        id: unit_tests
+        run: ./gradlew :translation:testReleaseUnitTest
+
+      - name: Upload test report
+        if: failure() && steps.unit_tests.outcome == 'failure'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: translation-test-report-${{ github.sha }}
+          path: translation/build/reports/tests/
+
+  full-build:
+    name: Assemble Debug APK
+    runs-on: 'ubuntu-24.04'
+    needs: fast-gate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version-file: .github/.java-version
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+
+      - name: Build app
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: translation-debug-universal-${{ github.sha }}
+          path: app/build/outputs/apk/debug/app-universal-debug.apk
