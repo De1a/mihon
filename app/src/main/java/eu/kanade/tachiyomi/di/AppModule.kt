@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.track.TrackerManager
+import eu.kanade.tachiyomi.data.translation.OpenAiCompatibleCloudPageAnalysisService
 import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.network.JavaScriptEngine
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -28,7 +29,6 @@ import eu.kanade.translation.PassthroughApiTranslationService
 import eu.kanade.translation.ReaderTranslationCoordinator
 import eu.kanade.translation.StaticModelCatalog
 import eu.kanade.translation.UnavailableBubbleDetector
-import eu.kanade.translation.UnavailableCloudPageAnalysisService
 import eu.kanade.translation.UnavailableMangaOcrEngine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -133,7 +133,13 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { UnavailableBubbleDetector() }
         addSingletonFactory { UnavailableMangaOcrEngine() }
         addSingletonFactory { PassthroughApiTranslationService() }
-        addSingletonFactory<CloudPageAnalysisService> { UnavailableCloudPageAnalysisService() }
+        addSingletonFactory<CloudPageAnalysisService> {
+            OpenAiCompatibleCloudPageAnalysisService(
+                networkHelper = get(),
+                preferences = get<TranslationPreferences>(),
+                json = get(),
+            )
+        }
         addSingletonFactory {
             ReaderTranslationCoordinator(
                 context = app,

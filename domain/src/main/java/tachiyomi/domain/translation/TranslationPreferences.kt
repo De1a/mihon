@@ -1,5 +1,6 @@
 package tachiyomi.domain.translation
 
+import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 
 class TranslationPreferences(
@@ -12,7 +13,8 @@ class TranslationPreferences(
     val apiProvider = preferenceStore.getString("translation_api_provider", "openai_compatible")
     val apiBaseUrl = preferenceStore.getString("translation_api_base_url", "")
     val apiModel = preferenceStore.getString("translation_api_model", "gpt-4.1-mini")
-    val apiKey = preferenceStore.getString("translation_api_key", "")
+    // Secret credential: prefix with __PRIVATE_ so it is excluded from unencrypted backups.
+    val apiKey = preferenceStore.getString(Preference.privateKey("translation_api_key"), "")
     val apiSystemPrompt = preferenceStore.getString("translation_api_system_prompt", "")
     val overlayScalePercent = preferenceStore.getInt("translation_overlay_scale_percent", 100)
 }

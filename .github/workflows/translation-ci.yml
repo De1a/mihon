@@ -13,6 +13,9 @@ on:
       - 'translation/**'
       - 'domain/**/translation/**'
       - 'app/**/reader/viewer/**'
+      - 'app/**/data/translation/**'
+      - 'app/**/di/AppModule.kt'
+      - 'app/**/migration/**'
       - '.github/workflows/translation-ci.yml'
 
 concurrency:
