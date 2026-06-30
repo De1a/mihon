@@ -21,6 +21,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import logcat.LogPriority
+import logcat.asLog
 import logcat.logcat
 import okhttp3.Headers
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -102,7 +103,7 @@ class OpenAiCompatibleCloudPageAnalysisService(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            logcat(LogPriority.ERROR, e) { "$LOG_TAG stage=cloud_failed" }
+            logcat(LogPriority.ERROR) { "$LOG_TAG stage=cloud_failed\n${e.asLog()}" }
             null
         }
     }
